@@ -126,6 +126,95 @@ def data_partition(fname):
 
 # TODO: merge evaluate functions for test and val set
 # evaluate on test set
+
+def evaluate_model(model, dataset, args, mode='test'):
+    """
+    Evaluate SASRec model on validation or test set.
+    
+    Args:
+        model: Trained SASRec model with `predict` method.
+        dataset: [train, valid, test, usernum, itemnum]
+        args: Hyperparameters with args.maxlen
+        mode: 'valid' or 'test'
+    
+    Returns:
+        Tuple: (NDCG@10, HR@10, MRR)
+    """
+    [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+
+    NDCG, HT, MRR = 0.0, 0.0, 0.0
+    NDCG_5, HT_5 = 0.0, 0.0
+    valid_user = 0.0
+
+    if usernum > 10000:
+        users = random.sample(range(1, usernum + 1), 10000)
+    else:
+        users = range(1, usernum + 1)
+
+    for u in users:
+        if len(train[u]) < 1: continue
+        if mode == 'valid' and len(valid[u]) < 1: continue
+        if mode == 'test' and len(test[u]) < 1: continue
+
+        seq = np.zeros([args.maxlen], dtype=np.int32)
+        idx = args.maxlen - 1
+
+        # If evaluating on test, include valid[0] as part of input
+        if mode == 'test':
+            seq[idx] = valid[u][0]
+            idx -= 1
+
+        for i in reversed(train[u]):
+            seq[idx] = i
+            idx -= 1
+            if idx == -1: break
+
+        rated = set(train[u])
+        rated.add(0)
+
+        # Set target item
+        if mode == 'valid':
+            target_item = valid[u][0]
+        else:
+            target_item = test[u][0]
+
+        item_idx = [target_item]
+        for _ in range(100):
+            t = np.random.randint(1, itemnum + 1)
+            while t in rated:
+                t = np.random.randint(1, itemnum + 1)
+            item_idx.append(t)
+
+        predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
+        predictions = predictions[0]
+
+        rank = predictions.argsort().argsort()[0].item()
+
+        valid_user += 1
+        if rank < 10:
+            NDCG += 1 / np.log2(rank + 2)
+            HT += 1
+        
+        if rank < 5:
+            NDCG_5 += 1 / np.log2(rank + 2)
+            HT_5 += 1
+        MRR += 1.0 / (rank + 1)
+
+        if valid_user % 100 == 0:
+            print('.', end="")
+            sys.stdout.flush()
+
+        return_vals = { 
+            'NDCG@10': NDCG / valid_user,
+            'NDCG@5': NDCG_5 / valid_user,
+            'HR@10': HT / valid_user,
+            'HR@5': HT_5 / valid_user,
+            'MRR': MRR / valid_user
+        }
+
+    return return_vals
+
+
 def evaluate(model, dataset, args):
     [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
 
