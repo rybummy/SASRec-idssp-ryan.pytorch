@@ -206,16 +206,87 @@ def evaluate_model(model, dataset, args, mode='test'):
             print('.', end="")
             sys.stdout.flush()
 
-        return_vals = { 
-            'NDCG@10': int(NDCG / valid_user),
-            'NDCG@5': int(NDCG_5 / valid_user),
-            'HR@10': HT / valid_user,
-            'HR@5': HT_5 / valid_user,
-            'MRR': MRR / valid_user
-        }
+    return_vals = { 
+        'NDCG@10': int(NDCG / valid_user),
+        'NDCG@5': int(NDCG_5 / valid_user),
+        'HR@10': HT / valid_user,
+        'HR@5': HT_5 / valid_user,
+        'MRR': MRR / valid_user
+    }
 
     return return_vals
 
+
+def evaluate_by_seq_length(model, dataset, args, X=5, mode='test'):
+    [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+
+    short_metrics = {'NDCG': 0.0, 'HR': 0.0, 'MRR': 0.0, 'count': 0}
+    long_metrics  = {'NDCG': 0.0, 'HR': 0.0, 'MRR': 0.0, 'count': 0}
+
+    if usernum > 10000:
+        users = random.sample(range(1, usernum + 1), 10000)
+    else:
+        users = range(1, usernum + 1)
+
+    for u in users:
+        if len(train[u]) < 1: continue
+        if mode == 'valid' and len(valid[u]) < 1: continue
+        if mode == 'test' and len(test[u]) < 1: continue
+
+        seq = np.zeros([args.maxlen], dtype=np.int32)
+        idx = args.maxlen - 1
+
+        # Include valid item in test sequences
+        if mode == 'test':
+            seq[idx] = valid[u][0]
+            idx -= 1
+
+        for i in reversed(train[u]):
+            seq[idx] = i
+            idx -= 1
+            if idx == -1: break
+
+        true_seq_len = np.count_nonzero(seq)
+        rated = set(train[u])
+        rated.add(0)
+
+        # Define the target item
+        target_item = valid[u][0] if mode == 'valid' else test[u][0]
+
+        item_idx = [target_item]
+        for _ in range(100):
+            t = np.random.randint(1, itemnum + 1)
+            while t in rated:
+                t = np.random.randint(1, itemnum + 1)
+            item_idx.append(t)
+
+        predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
+        predictions = predictions[0]
+        rank = predictions.argsort().argsort()[0].item()
+
+        if true_seq_len < X:
+            metrics = short_metrics
+        else:
+            metrics = long_metrics
+
+        metrics['NDCG'] += 1 / np.log2(rank + 2) if rank < 10 else 0
+        metrics['HR'] += 1 if rank < 10 else 0
+        metrics['MRR'] += 1.0 / (rank + 1)
+        metrics['count'] += 1
+
+    def average(m):
+        if m['count'] == 0:
+            return {'NDCG@10': 0, 'HR@10': 0, 'MRR': 0}
+        return {
+            'NDCG@10': m['NDCG'] / m['count'],
+            'HR@10': m['HR'] / m['count'],
+            'MRR': m['MRR'] / m['count']
+        }
+
+    return {
+        'short (<{})'.format(X): average(short_metrics),
+        'long (≥{})'.format(X): average(long_metrics)
+    }
 
 def evaluate(model, dataset, args):
     [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
