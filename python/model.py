@@ -82,9 +82,9 @@ class SASRec(torch.nn.Module):
         seqs = item_embs + action_embs #NEW
         seqs *= self.item_emb.embedding_dim ** 0.5
 
-        poss = np.tile(np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
+        poss = np.tile(np.arange(1, item_seq.shape[1] + 1), [item_seq.shape[0], 1])
         # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
-        poss *= (log_seqs != 0)
+        poss *= (item_seq != 0)
         seqs += self.pos_emb(torch.LongTensor(poss).to(self.dev))
         seqs = self.emb_dropout(seqs)
 
