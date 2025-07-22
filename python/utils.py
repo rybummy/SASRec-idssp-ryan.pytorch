@@ -173,8 +173,8 @@ def evaluate_model(model, dataset, args, mode='test'):
             seq[idx] = valid[u][0][0]
             idx -= 1
 
-        for i in reversed(i[0] for i in train[u]):
-            seq[idx] = i  # i[0] is item_id
+        for i in reversed(train[u]):
+            seq[idx] = i[0]  # i[0] is item_id
             idx -= 1
             if idx == -1: break
 
