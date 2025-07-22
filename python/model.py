@@ -70,10 +70,16 @@ class SASRec(torch.nn.Module):
         #seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
         #seqs *= self.item_emb.embedding_dim ** 0.5
 
-        item_embs = self.item_emb(torch.LongTensor(log_seqs[0]).to(self.dev)) #NEW, need to change log_seqs to have both item_id and type_id
-        name_embs = self.type_emb(torch.LongTensor(log_seqs[1]).to(self.dev)) #NEW
+        if isinstance(log_seqs, (list, tuple)) and len(log_seqs) == 2:
+            item_seq, action_seq = log_seqs
+        else:
+            item_seq = log_seqs  # likely a single array
+            action_seq = np.zeros_like(item_seq)  # fill with zeros (e.g., default to "view")
 
-        seqs = item_embs + name_embs #NEW
+        item_embs = self.item_emb(torch.LongTensor(item_seq).to(self.dev)) #NEW, need to change log_seqs to have both item_id and type_id
+        action_embs = self.type_emb(torch.LongTensor(action_seq).to(self.dev)) #NEW
+
+        seqs = item_embs + action_embs #NEW
         seqs *= self.item_emb.embedding_dim ** 0.5
 
         poss = np.tile(np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
