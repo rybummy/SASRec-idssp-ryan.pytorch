@@ -198,6 +198,8 @@ def evaluate_model(model, dataset, args, mode='test'):
         if rank < 5:
             NDCG_5 += 1 / np.log2(rank + 2)
             HT_5 += 1
+
+        #MRR
         MRR += 1.0 / (rank + 1)
 
         if valid_user % 100 == 0:
@@ -205,8 +207,8 @@ def evaluate_model(model, dataset, args, mode='test'):
             sys.stdout.flush()
 
         return_vals = { 
-            'NDCG@10': NDCG / valid_user,
-            'NDCG@5': NDCG_5 / valid_user,
+            'NDCG@10': int(NDCG / valid_user),
+            'NDCG@5': int(NDCG_5 / valid_user),
             'HR@10': HT / valid_user,
             'HR@5': HT_5 / valid_user,
             'MRR': MRR / valid_user
