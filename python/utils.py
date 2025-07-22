@@ -36,22 +36,29 @@ def sample_function(user_train, usernum, itemnum, batch_size, maxlen, result_que
         # uid = np.random.randint(1, usernum + 1)
         while len(user_train[uid]) <= 1: uid = np.random.randint(1, usernum + 1)
 
-        seq = np.zeros([maxlen], dtype=np.int32)
+        seq_items = np.zeros([maxlen], dtype=np.int32)
+
+        seq_actions = np.zeros([maxlen], dtype=np.int32) #NEW
+
         pos = np.zeros([maxlen], dtype=np.int32)
         neg = np.zeros([maxlen], dtype=np.int32)
-        nxt = user_train[uid][-1]
+
+        nxt = user_train[uid][-1][0]
+        
         idx = maxlen - 1
 
-        ts = set(user_train[uid])
+        ts = set([i[0] for i in user_train[uid]])
+
         for i in reversed(user_train[uid][:-1]):
-            seq[idx] = i
+            seq_items[idx] = i[0]
+            seq_actions[idx] = i[1] #NEW
             pos[idx] = nxt
             if nxt != 0: neg[idx] = random_neq(1, itemnum + 1, ts)
-            nxt = i
+            nxt = i[0]
             idx -= 1
             if idx == -1: break
 
-        return (uid, seq, pos, neg)
+        return (uid, [seq_items, seq_actions],  pos, neg)
 
     np.random.seed(SEED)
     uids = np.arange(1, usernum+1, dtype=np.int32)
@@ -103,12 +110,13 @@ def data_partition(fname):
     # assume user/item index starting from 1
     f = open('data/%s.txt' % fname, 'r')
     for line in f:
-        u, i = line.rstrip().split(' ')
+        u, i, t = line.rstrip().split(' ')
         u = int(u)
         i = int(i)
+        t = int(t) #NEW
         usernum = max(u, usernum)
         itemnum = max(i, itemnum)
-        User[u].append(i)
+        User[u].append((i, t)) #NEW
 
     for user in User:
         nfeedback = len(User[user])
@@ -144,6 +152,7 @@ def evaluate_model(model, dataset, args, mode='test'):
 
     NDCG, HT, MRR = 0.0, 0.0, 0.0
     NDCG_5, HT_5 = 0.0, 0.0
+    HR_1 = 0.0
     valid_user = 0.0
 
     if usernum > 10000:
@@ -161,22 +170,22 @@ def evaluate_model(model, dataset, args, mode='test'):
 
         # If evaluating on test, include valid[0] as part of input
         if mode == 'test':
-            seq[idx] = valid[u][0]
+            seq[idx] = valid[u][0][0]
             idx -= 1
 
-        for i in reversed(train[u]):
-            seq[idx] = i
+        for i in reversed(i for i in train[u]):
+            seq[idx] = i[0]  # i[0] is item_id
             idx -= 1
             if idx == -1: break
 
-        rated = set(train[u])
+        rated = set(i[0] for i in train[u])
         rated.add(0)
 
         # Set target item
         if mode == 'valid':
-            target_item = valid[u][0]
+            target_item = valid[u][0][0]
         else:
-            target_item = test[u][0]
+            target_item = test[u][0][0]
 
         item_idx = [target_item]
         for _ in range(100):
@@ -199,6 +208,8 @@ def evaluate_model(model, dataset, args, mode='test'):
             NDCG_5 += 1 / np.log2(rank + 2)
             HT_5 += 1
 
+        if rank == 1:
+            HR_1 += 1
         #MRR
         MRR += 1.0 / (rank + 1)
 
@@ -211,7 +222,8 @@ def evaluate_model(model, dataset, args, mode='test'):
         'NDCG@5': NDCG_5 / valid_user,
         'HR@10': HT / valid_user,
         'HR@5': HT_5 / valid_user,
-        'MRR': MRR / valid_user
+        'MRR': MRR / valid_user,
+        'HR@1': HR_1 / valid_user
     }
 
     return return_vals

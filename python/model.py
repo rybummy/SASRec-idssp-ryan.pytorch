@@ -35,6 +35,10 @@ class SASRec(torch.nn.Module):
         # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
         self.item_emb = torch.nn.Embedding(self.item_num+1, args.hidden_units, padding_idx=0)
         self.pos_emb = torch.nn.Embedding(args.maxlen+1, args.hidden_units, padding_idx=0)
+
+        self.type_emb = torch.nn.Embedding(3, args.hidden_units, padding_idx=0) # NEW LINE For event type (load item, add cart, purchase)
+    
+
         self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
 
         self.attention_layernorms = torch.nn.ModuleList() # to be Q for self-attention
@@ -63,8 +67,15 @@ class SASRec(torch.nn.Module):
             # self.neg_sigmoid = torch.nn.Sigmoid()
 
     def log2feats(self, log_seqs): # TODO: fp64 and int64 as default in python, trim?
-        seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
+        #seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
+        #seqs *= self.item_emb.embedding_dim ** 0.5
+
+        item_embs = self.item_emb(torch.LongTensor(log_seqs[0]).to(self.dev)) #NEW, need to change log_seqs to have both item_id and type_id
+        name_embs = self.type_emb(torch.LongTensor(log_seqs[1]).to(self.dev)) #NEW
+
+        seqs = item_embs + name_embs #NEW
         seqs *= self.item_emb.embedding_dim ** 0.5
+
         poss = np.tile(np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
         # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
         poss *= (log_seqs != 0)
