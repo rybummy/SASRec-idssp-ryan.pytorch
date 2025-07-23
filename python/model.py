@@ -34,10 +34,11 @@ class SASRec(torch.nn.Module):
         # TODO: loss += args.l2_emb for regularizing embedding vectors during training
         # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
         self.item_emb = torch.nn.Embedding(self.item_num+1, args.hidden_units, padding_idx=0)
-        self.pos_emb = torch.nn.Embedding(args.maxlen+1, 2 * args.hidden_units, padding_idx=0)
+        self.pos_emb = torch.nn.Embedding(args.maxlen+1, args.hidden_units, padding_idx=0)
 
         self.type_emb = torch.nn.Embedding(3, args.hidden_units, padding_idx=0) # NEW LINE For event type (load item, add cart, purchase)
     
+        self.fusion_proj = torch.nn.Linear(2 * args.hidden_units, args.hidden_units)
 
         self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
 
@@ -46,21 +47,21 @@ class SASRec(torch.nn.Module):
         self.forward_layernorms = torch.nn.ModuleList()
         self.forward_layers = torch.nn.ModuleList()
 
-        self.last_layernorm = torch.nn.LayerNorm(2 * args.hidden_units, eps=1e-8)
+        self.last_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
 
         for _ in range(args.num_blocks):
-            new_attn_layernorm = torch.nn.LayerNorm(2 * args.hidden_units, eps=1e-8)
+            new_attn_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
             self.attention_layernorms.append(new_attn_layernorm)
 
-            new_attn_layer =  torch.nn.MultiheadAttention(2 * args.hidden_units,
+            new_attn_layer =  torch.nn.MultiheadAttention(args.hidden_units,
                                                             args.num_heads,
                                                             args.dropout_rate)
             self.attention_layers.append(new_attn_layer)
 
-            new_fwd_layernorm = torch.nn.LayerNorm(2 * args.hidden_units, eps=1e-8)
+            new_fwd_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
             self.forward_layernorms.append(new_fwd_layernorm)
 
-            new_fwd_layer = PointWiseFeedForward(2 * args.hidden_units, args.dropout_rate)
+            new_fwd_layer = PointWiseFeedForward(args.hidden_units, args.dropout_rate)
             self.forward_layers.append(new_fwd_layer)
 
             # self.pos_sigmoid = torch.nn.Sigmoid()
@@ -81,7 +82,7 @@ class SASRec(torch.nn.Module):
 
         #seqs = item_embs + action_embs #NEW
         seqs = torch.cat([item_embs, action_embs], dim=-1)
-
+        seqs = self.fusion_proj(seqs)
         seqs *= self.item_emb.embedding_dim ** 0.5
 
         poss = np.tile(np.arange(1, item_seq.shape[1] + 1), [item_seq.shape[0], 1])
