@@ -36,8 +36,7 @@ class SASRec(torch.nn.Module):
         self.item_emb = torch.nn.Embedding(self.item_num+1, args.hidden_units, padding_idx=0)
         self.pos_emb = torch.nn.Embedding(args.maxlen+1, args.hidden_units, padding_idx=0)
 
-        self.type_emb = torch.nn.Embedding(3, args.hidden_units, padding_idx=0) # NEW LINE For event type (load item, add cart, purchase)
-    
+        self.type_emb = torch.nn.Embedding(3 + 1, args.hidden_units, padding_idx=0) # NEW LINE For event type (load item, add cart, purchase)
         self.fusion_proj = torch.nn.Linear(2 * args.hidden_units, args.hidden_units)
 
         self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
