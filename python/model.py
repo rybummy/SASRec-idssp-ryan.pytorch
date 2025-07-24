@@ -85,6 +85,7 @@ class SASRec(torch.nn.Module):
         seqs *= self.item_emb.embedding_dim ** 0.5
 
         poss = np.tile(np.arange(1, item_seq.shape[1] + 1), [item_seq.shape[0], 1])
+        
         # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
         poss *= (item_seq != 0)
         seqs += self.pos_emb(torch.LongTensor(poss).to(self.dev))
