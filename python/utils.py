@@ -179,27 +179,38 @@ def evaluate_model(model, dataset, args, mode='test', amount='all'):
             if idx == -1: break
 
         rated = set(i[0] for i in train[u])
-        rated.add(0)  # if 0 is PAD and should be excluded
+        rated.add(0)
 
         # Set target item
-        target_item = (valid if mode == 'valid' else test)[u][0][0]
+        if mode == 'valid':
+            target_item = valid[u][0][0]
+        else:
+            target_item = test[u][0][0]
 
         item_idx = [target_item]
 
-        if amount in {'100', '1000'}:
-            num_neg = int(amount) - 1  # because 1 is the target item
-            neg_pool = list(set(range(1, itemnum + 1)) - rated - {target_item})
-            if len(neg_pool) < num_neg:
-                print(f"[WARN] Not enough negative samples for user {u}")
-                sampled_negs = neg_pool
-            else:
-                sampled_negs = random.sample(neg_pool, num_neg)
-            item_idx.extend(sampled_negs)
-                
-        predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
-        predictions = predictions[0]
+        if amount == 'all':
+            for _ in range(1000):
+                t = np.random.randint(1, itemnum + 1)
+                while t in rated:
+                    t = np.random.randint(1, itemnum + 1)
+                item_idx.append(t)
+        elif amount == '100':
+            for _ in range(100):
+                t = np.random.randint(1, itemnum + 1)
+                while t in rated:
+                    t = np.random.randint(1, itemnum + 1)
 
+                item_idx.append(t)
+        
+        #predictions = -model.predict(*[np.array(l) for l in [[u], [seq], len()]])
+        #predictions = predictions[0]
+
+        #rank = predictions.argsort().argsort()[0].item()
+        predictions = -model.predict(np.array([u]), np.array([seq]), np.arange(1, itemnum + 1))[0]
         rank = predictions.argsort().argsort()[0].item()
+
+
 
         valid_user += 1
         if rank < 10:
