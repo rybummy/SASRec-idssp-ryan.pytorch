@@ -180,16 +180,16 @@ def evaluate_model(model, dataset, args, mode='test'):
 
         item_idx = [target_item]
 
-        '''
+
         for _ in range(500):
             t = np.random.randint(1, itemnum + 1)
             while t in rated:
                 t = np.random.randint(1, itemnum + 1)
             item_idx.append(t)
-        '''
+  
         
-        item_idx = list(range(1, itemnum + 1))
-        print(item_idx)
+        #item_idx = list(range(1, itemnum + 1))
+        #print(item_idx)
         predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
         predictions = predictions[0]
 
