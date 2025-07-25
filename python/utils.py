@@ -185,7 +185,7 @@ def evaluate_model(model, dataset, args, mode='test'):
                 t = np.random.randint(1, itemnum + 1)
             item_idx.append(t)
         
-        item_idx = list(range(1, itemnum + 1))
+       # item_idx = list(range(1, itemnum + 1))
         print(item_idx)
         predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
         predictions = predictions[0]
