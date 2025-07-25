@@ -203,11 +203,9 @@ def evaluate_model(model, dataset, args, mode='test', amount='all'):
 
                 item_idx.append(t)
         
-        #predictions = -model.predict(*[np.array(l) for l in [[u], [seq], len()]])
-        #predictions = predictions[0]
+        predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
+        predictions = predictions[0]
 
-        #rank = predictions.argsort().argsort()[0].item()
-        predictions = -model.predict(np.array([u]), np.array([seq]), np.arange(1, itemnum + 1))[0]
         rank = predictions.argsort().argsort()[0].item()
 
 
