@@ -135,7 +135,7 @@ def data_partition(fname):
 # TODO: merge evaluate functions for test and val set
 # evaluate on test set
 
-def evaluate_model(model, dataset, args, mode='test'):
+def evaluate_model(model, dataset, args, mode='test', amount='all'):
     """
     Evaluate SASRec model on validation or test set.
     
@@ -188,12 +188,16 @@ def evaluate_model(model, dataset, args, mode='test'):
             target_item = test[u][0][0]
 
         item_idx = [target_item]
-        for _ in range(100):
-            t = np.random.randint(1, itemnum + 1)
-            while t in rated:
-                t = np.random.randint(1, itemnum + 1)
-            item_idx.append(t)
 
+        if amount == 'all':
+            item_idx = list(range(1, itemnum + 1)) #use all items
+        elif amount == '100':
+            for _ in range(100):
+                t = np.random.randint(1, itemnum + 1)
+                while t in rated:
+                    t = np.random.randint(1, itemnum + 1)
+                item_idx.append(t)
+        
         predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
         predictions = predictions[0]
 
@@ -331,7 +335,7 @@ def evaluate(model, dataset, args):
             while t in rated: t = np.random.randint(1, itemnum + 1)
             item_idx.append(t)
 
-        item_idx = list(range(1, itemnum + 1))
+        item_idx = list(range(1, itemnum + 1)) #use all items
 
         predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
         predictions = predictions[0] # - for 1st argsort DESC
