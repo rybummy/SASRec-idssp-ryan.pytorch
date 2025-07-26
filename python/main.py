@@ -68,6 +68,7 @@ if __name__ == '__main__':
     model.item_emb.weight.data[0, :] = 0
     model.train()
 
+    evaluate_model(model, dataset, args)  # initial evaluation to check model performance
 
 
     #load pretrained weights if provided

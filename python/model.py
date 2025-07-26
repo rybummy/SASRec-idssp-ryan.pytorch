@@ -143,7 +143,7 @@ class SASRecRX(torch.nn.Module):
         # TODO: loss += args.l2_emb for regularizing embedding vectors during training
         # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
         self.item_emb = torch.nn.Embedding(self.item_num + 1, args.hidden_units, padding_idx=0)
-        
+
         self.text_emb = torch.nn.Embedding(len(args.pretrained_text_embs), 384, padding_idx=None)
         self.text_emb.weight.data.copy_(torch.tensor(args.pretrained_text_embs))
         self.text_emb.weight.requires_grad = False  # if you want it frozen
@@ -252,6 +252,9 @@ class SASRecRX(torch.nn.Module):
         final_feat = log_feats[:, -1, :] # only use last QKV classifier, a waste
 
         item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev)) # (U, I, C)
+
+        item_text_embs = self.text_emb(torch.LongTensor(item_indices).to(self.dev))
+        item_embs = self.fusion_gate(torch.cat([item_embs, item_text_embs], dim=-1))
 
         logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
 
