@@ -248,7 +248,7 @@ class SASRecRX(torch.nn.Module):
         final_feat = log_feats[:, -1, :] # only use last QKV classifier, a waste
 
         item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev)) # (U, I, C)
-        txt_emb = self.text_emb[torch.LongTensor(log_seqs).to(self.dev)]
+        txt_emb = self.text_emb[torch.LongTensor(item_indices).to(self.dev)]
 
         item_embs = self.fusion_gate(torch.cat([item_embs, txt_emb], dim=-1))
 
