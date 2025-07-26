@@ -120,3 +120,141 @@ class SASRec(torch.nn.Module):
         # preds = self.pos_sigmoid(logits) # rank same item list for different users
 
         return logits # preds # (U, I)
+
+
+class SASRecRX(torch.nn.Module):
+    def __init__(self, user_num, item_num, args):
+        #add file in args
+        super(SASRecRX, self).__init__()
+
+        self.user_num = user_num
+        self.item_num = item_num
+
+        # Assume pretrained_text_embs is passed in args or loaded externally
+        pretrained_text_tensor = torch.tensor(args.pretrained_text_embs, dtype=torch.float32, device=args.device)
+
+        # Treat text embeddings as trainable lookup
+        self.text_emb = torch.nn.Parameter(pretrained_text_tensor, requires_grad=True)
+
+        # Optional: Gating mechanism to fuse item ID and text embeddings
+        self.fusion_gate = torch.nn.Linear(args.hidden_units + 384, args.hidden_units) #384 vector embedding size
+
+        self.dev = args.device
+        self.norm_first = args.norm_first
+
+        # TODO: loss += args.l2_emb for regularizing embedding vectors during training
+        # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
+        self.item_emb = torch.nn.Embedding(self.item_num+1, args.hidden_units, padding_idx=0)
+        self.pos_emb = torch.nn.Embedding(args.maxlen+1, args.hidden_units, padding_idx=0)
+        self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
+
+        self.attention_layernorms = torch.nn.ModuleList() # to be Q for self-attention
+        self.attention_layers = torch.nn.ModuleList()
+        self.forward_layernorms = torch.nn.ModuleList()
+        self.forward_layers = torch.nn.ModuleList()
+
+        self.last_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
+
+        for _ in range(args.num_blocks):
+            new_attn_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
+            self.attention_layernorms.append(new_attn_layernorm)
+
+            new_attn_layer =  torch.nn.MultiheadAttention(args.hidden_units,
+                                                            args.num_heads,
+                                                            args.dropout_rate)
+            self.attention_layers.append(new_attn_layer)
+
+            new_fwd_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
+            self.forward_layernorms.append(new_fwd_layernorm)
+
+            new_fwd_layer = PointWiseFeedForward(args.hidden_units, args.dropout_rate)
+            self.forward_layers.append(new_fwd_layer)
+
+            # self.pos_sigmoid = torch.nn.Sigmoid()
+            # self.neg_sigmoid = torch.nn.Sigmoid()
+
+    def log2feats(self, log_seqs): # TODO: fp64 and int64 as default in python, trim?
+        seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
+        txts = self.text_emb[log_seqs]  # Assuming log_seqs contains item indices
+        seqs = torch.cat((seqs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
+        seqs = self.fusion_gate(seqs)  # Apply gating mechanism
+        #from log_seqs, map product id to learned embedding
+        #concat
+        seqs *= self.item_emb.embedding_dim ** 0.5
+
+        poss = np.tile(np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
+        # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
+        poss *= (log_seqs != 0)
+
+        
+
+
+        seqs += self.pos_emb(torch.LongTensor(poss).to(self.dev))
+        seqs = self.emb_dropout(seqs)
+
+        tl = seqs.shape[1] # time dim len for enforce causality
+        attention_mask = ~torch.tril(torch.ones((tl, tl), dtype=torch.bool, device=self.dev))
+
+        for i in range(len(self.attention_layers)):
+            seqs = torch.transpose(seqs, 0, 1)
+            if self.norm_first:
+                x = self.attention_layernorms[i](seqs)
+                mha_outputs, _ = self.attention_layers[i](x, x, x,
+                                                attn_mask=attention_mask)
+                seqs = seqs + mha_outputs
+                seqs = torch.transpose(seqs, 0, 1)
+                seqs = seqs + self.forward_layers[i](self.forward_layernorms[i](seqs))
+            else:
+                mha_outputs, _ = self.attention_layers[i](seqs, seqs, seqs,
+                                                attn_mask=attention_mask)
+                seqs = self.attention_layernorms[i](seqs + mha_outputs)
+                seqs = torch.transpose(seqs, 0, 1)
+                seqs = self.forward_layernorms[i](seqs + self.forward_layers[i](seqs))
+
+        log_feats = self.last_layernorm(seqs) # (U, T, C) -> (U, -1, C)
+
+        return log_feats
+
+    def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs): # for training        
+        log_feats = self.log2feats(log_seqs) # user_ids hasn't been used yet
+
+        #pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
+        pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
+        txts = self.text_emb[pos_seqs]  # Assuming log_seqs contains item indices
+        pos_embs = torch.cat((pos_embs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
+        pos_embs = self.fusion_gate(pos_embs)  # Apply gating mechanism
+
+
+        
+        #neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
+        neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
+        txts = self.text_emb[neg_seqs]  # Assuming log_seqs contains item indices
+        neg_embs = torch.cat((neg_embs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
+        neg_embs = self.fusion_gate(neg_embs)  # Apply gating mechanism
+
+
+
+        pos_logits = (log_feats * pos_embs).sum(dim=-1)
+        neg_logits = (log_feats * neg_embs).sum(dim=-1)
+
+        # pos_pred = self.pos_sigmoid(pos_logits)
+        # neg_pred = self.neg_sigmoid(neg_logits)
+
+        return pos_logits, neg_logits # pos_pred, neg_pred
+
+    def predict(self, user_ids, log_seqs, item_indices): # for inference
+        log_feats = self.log2feats(log_seqs) # user_ids hasn't been used yet
+
+        final_feat = log_feats[:, -1, :] # only use last QKV classifier, a waste
+
+        item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev)) # (U, I, C)
+        txt_emb = self.text_emb[item_indices]
+
+        item_embs = self.fusion_gate(torch.cat([item_embs, txt_emb], dim=-1))
+
+
+        logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
+
+        # preds = self.pos_sigmoid(logits) # rank same item list for different users
+
+        return logits # preds # (U, I)
