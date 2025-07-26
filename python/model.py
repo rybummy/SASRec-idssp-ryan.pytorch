@@ -129,14 +129,11 @@ class SASRecRX(torch.nn.Module):
 
         self.user_num = user_num
         self.item_num = item_num
+        print(f"{self.item_num} items in total?")
 
         # Assume pretrained_text_embs is passed in args or loaded externally
         #pretrained_text_tensor = torch.tensor(args.pretrained_text_embs, dtype=torch.float32, device=args.device)
-
-        # Treat text embeddings as trainable lookup
-        self.item_feature_tensor = torch.tensor(args.pretrained_text_embs, dtype=torch.float)
-        self.item_embedding_layer = torch.nn.Embedding.from_pretrained(self.item_feature_tensor, freeze=True)
-        
+  
         # Optional: Gating mechanism to fuse item ID and text embeddings
         self.fusion_gate = torch.nn.Linear(args.hidden_units + 384, args.hidden_units) #384 vector embedding size
 
@@ -145,7 +142,12 @@ class SASRecRX(torch.nn.Module):
 
         # TODO: loss += args.l2_emb for regularizing embedding vectors during training
         # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
-        self.item_emb = torch.nn.Embedding(self.item_num+1, args.hidden_units, padding_idx=0)
+        self.item_emb = torch.nn.Embedding(self.item_num + 1, args.hidden_units, padding_idx=0)
+        
+        self.text_emb = torch.nn.Embedding(len(args.pretrained_text_embs), 384, padding_idx=None)
+        self.text_emb.weight.data.copy_(torch.tensor(args.pretrained_text_embs))
+        self.text_emb.weight.requires_grad = False  # if you want it frozen
+
         self.pos_emb = torch.nn.Embedding(args.maxlen+1, args.hidden_units, padding_idx=0)
         self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
 
@@ -181,10 +183,10 @@ class SASRecRX(torch.nn.Module):
         seqs_id_emb = self.item_emb(log_seqs_tensor)  # [B, T, H]
 
         # Precomputed feature embedding
-        seqs_feat_emb = self.item_embedding_layer(log_seqs_tensor)  # [B, T, 384]
+        seq_text_emb = self.text_emb(log_seqs_tensor)  # [B, T, 384]
 
         # Fuse: concatenate + linear projection
-        seqs_cat = torch.cat([seqs_id_emb, seqs_feat_emb], dim=-1)  # [B, T, H+384]
+        seqs_cat = torch.cat([seqs_id_emb, seq_text_emb], dim=-1)  # [B, T, H+384]
 
         seqs = self.fusion_gate(seqs_cat)  # [B, T, H]
 
@@ -228,15 +230,13 @@ class SASRecRX(torch.nn.Module):
     def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs): # for training        
         log_feats = self.log2feats(log_seqs) # user_ids hasn't been used yet
 
-        pos_embs_id = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))                      # [B, T, H]
-        pos_embs_feat = self.item_embedding_layer(torch.LongTensor(pos_seqs).to(self.dev))        # [B, T, 384]
-        pos_embs_cat = torch.cat([pos_embs_id, pos_embs_feat], dim=-1)                            # [B, T, H+384]
-        pos_embs = self.fusion_gate(pos_embs_cat)                                                 # [B, T, H]
+        pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
+        pos_text_embs = self.text_emb(torch.LongTensor(pos_seqs).to(self.dev))
+        pos_embs = self.fusion_gate(torch.cat([pos_embs, pos_text_embs], dim=-1))
 
-        neg_embs_id = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
-        neg_embs_feat = self.item_embedding_layer(torch.LongTensor(neg_seqs).to(self.dev))
-        neg_embs_cat = torch.cat([neg_embs_id, neg_embs_feat], dim=-1)
-        neg_embs = self.fusion_gate(neg_embs_cat)
+        neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
+        neg_text_embs = self.text_emb(torch.LongTensor(neg_seqs).to(self.dev))
+        neg_embs = self.fusion_gate(torch.cat([neg_embs, neg_text_embs], dim=-1))
 
         pos_logits = (log_feats * pos_embs).sum(dim=-1)
         neg_logits = (log_feats * neg_embs).sum(dim=-1)
@@ -245,27 +245,16 @@ class SASRecRX(torch.nn.Module):
         # neg_pred = self.neg_sigmoid(neg_logits)
 
         return pos_logits, neg_logits # pos_pred, neg_pred
-    
-
-
-
 
     def predict(self, user_ids, log_seqs, item_indices): # for inference
         log_feats = self.log2feats(log_seqs) # user_ids hasn't been used yet
 
         final_feat = log_feats[:, -1, :] # only use last QKV classifier, a waste
 
-        item_embs_id = self.item_emb(torch.LongTensor(item_indices).to(self.dev))                 # [I, H]
-        item_embs_feat = self.item_embedding_layer(torch.LongTensor(item_indices).to(self.dev))   # [I, 384]
-        item_embs_cat = torch.cat([item_embs_id, item_embs_feat], dim=-1)                         # [I, H+384]
-        item_embs = self.fusion_gate(item_embs_cat)     
+        item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev)) # (U, I, C)
 
         logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
 
         # preds = self.pos_sigmoid(logits) # rank same item list for different users
 
         return logits # preds # (U, I)
-
-
-
-    

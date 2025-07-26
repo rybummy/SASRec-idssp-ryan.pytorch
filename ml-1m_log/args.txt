@@ -1,0 +1,28 @@
+batch_size,1024
+dataset,ml-1m
+device,cpu
+dropout_rate,0.2
+hidden_units,50
+inference_only,False
+l2_emb,5e-05
+lr,0.001
+maxlen,50
+norm_first,False
+num_blocks,2
+num_epochs,100
+num_heads,2
+pretrained_text_embs,[[ 0.          0.          0.         ...  0.          0.
+   0.        ]
+ [-0.19325085  0.1265935   0.07454434 ... -0.07727125  0.10903557
+   0.17189264]
+ [ 0.          0.          0.         ...  0.          0.
+   0.        ]
+ ...
+ [ 0.          0.          0.         ...  0.          0.
+   0.        ]
+ [-0.10146215  0.10247011  0.09638521 ... -0.21678255  0.18959036
+   0.16751042]
+ [ 0.          0.          0.         ...  0.          0.
+   0.        ]]
+state_dict_path,None
+train_dir,log
