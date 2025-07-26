@@ -131,11 +131,12 @@ class SASRecRX(torch.nn.Module):
         self.item_num = item_num
 
         # Assume pretrained_text_embs is passed in args or loaded externally
-        pretrained_text_tensor = torch.tensor(args.pretrained_text_embs, dtype=torch.float32, device=args.device)
+        #pretrained_text_tensor = torch.tensor(args.pretrained_text_embs, dtype=torch.float32, device=args.device)
 
         # Treat text embeddings as trainable lookup
-        self.text_emb = torch.nn.Parameter(pretrained_text_tensor, requires_grad=True)
-
+        self.item_feature_tensor = torch.tensor(args.pretrained_text_embs, dtype=torch.float)
+        self.item_embedding_layer = torch.nn.Embedding.from_pretrained(self.item_feature_tensor, freeze=True)
+        
         # Optional: Gating mechanism to fuse item ID and text embeddings
         self.fusion_gate = torch.nn.Linear(args.hidden_units + 384, args.hidden_units) #384 vector embedding size
 
@@ -174,14 +175,23 @@ class SASRecRX(torch.nn.Module):
             # self.neg_sigmoid = torch.nn.Sigmoid()
 
     def log2feats(self, log_seqs): # TODO: fp64 and int64 as default in python, trim?
-        seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
-        txts = self.text_emb[torch.LongTensor(log_seqs).to(self.dev)]  # Assuming log_seqs contains item indices
-        seqs = torch.cat((seqs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
-        seqs = self.fusion_gate(seqs)  # Apply gating mechanism
-        #from log_seqs, map product id to learned embedding
-        #concat
-        seqs *= self.item_emb.embedding_dim ** 0.5
+        log_seqs_tensor = torch.LongTensor(log_seqs).to(self.dev)
 
+        # ID embedding
+        seqs_id_emb = self.item_emb(log_seqs_tensor)  # [B, T, H]
+
+        # Precomputed feature embedding
+        seqs_feat_emb = self.item_embedding_layer(log_seqs_tensor)  # [B, T, 384]
+
+        # Fuse: concatenate + linear projection
+        seqs_cat = torch.cat([seqs_id_emb, seqs_feat_emb], dim=-1)  # [B, T, H+384]
+
+        seqs = self.fusion_gate(seqs_cat)  # [B, T, H]
+
+    # Optional: add LayerNorm or Dropout if defined
+    # seqs = self.fusion_dropout(self.fusion_ln(seqs))
+
+        seqs *= self.item_emb.embedding_dim ** 0.5  # scaling
         poss = np.tile(np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
         # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
         poss *= (log_seqs != 0)
@@ -218,21 +228,15 @@ class SASRecRX(torch.nn.Module):
     def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs): # for training        
         log_feats = self.log2feats(log_seqs) # user_ids hasn't been used yet
 
-        #pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
-        pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
-        txts = self.text_emb[torch.LongTensor(log_seqs).to(self.dev)]  # Assuming log_seqs contains item indices
-        pos_embs = torch.cat((pos_embs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
-        pos_embs = self.fusion_gate(pos_embs)  # Apply gating mechanism
+        pos_embs_id = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))                      # [B, T, H]
+        pos_embs_feat = self.item_embedding_layer(torch.LongTensor(pos_seqs).to(self.dev))        # [B, T, 384]
+        pos_embs_cat = torch.cat([pos_embs_id, pos_embs_feat], dim=-1)                            # [B, T, H+384]
+        pos_embs = self.fusion_gate(pos_embs_cat)                                                 # [B, T, H]
 
-
-        
-        #neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
-        neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
-        txts = self.text_emb[torch.LongTensor(log_seqs).to(self.dev)]  # Assuming log_seqs contains item indices
-        neg_embs = torch.cat((neg_embs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
-        neg_embs = self.fusion_gate(neg_embs)  # Apply gating mechanism
-
-
+        neg_embs_id = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
+        neg_embs_feat = self.item_embedding_layer(torch.LongTensor(neg_seqs).to(self.dev))
+        neg_embs_cat = torch.cat([neg_embs_id, neg_embs_feat], dim=-1)
+        neg_embs = self.fusion_gate(neg_embs_cat)
 
         pos_logits = (log_feats * pos_embs).sum(dim=-1)
         neg_logits = (log_feats * neg_embs).sum(dim=-1)
@@ -243,50 +247,25 @@ class SASRecRX(torch.nn.Module):
         return pos_logits, neg_logits # pos_pred, neg_pred
     
 
-    def predict(self, user_ids, log_seqs, item_indices):  # for inference
-        log_feats = self.log2feats(log_seqs)  # (U, T, C)
-        final_feat = log_feats[:, -1, :]      # (U, C) -- last time step feature
 
-        # Convert item_indices to tensor on the correct device
-        item_indices_tensor = torch.LongTensor(item_indices).to(self.dev)
 
-        # Get item embedding vectors (I, C)
-        item_embs = self.item_emb(item_indices_tensor)
 
-        # Get text embedding vectors (I, text_dim), e.g., 384
-        txt_embs = self.text_emb[item_indices_tensor]
-
-        # Add batch dim to embeddings if item_indices is 1D, assuming batch size = 1
-        if len(item_embs.shape) == 2:
-            item_embs = item_embs.unsqueeze(0)  # (1, I, C)
-            txt_embs = txt_embs.unsqueeze(0)    # (1, I, text_dim)
-
-        # Fuse item and text embeddings via fusion gate
-        fused_embs = self.fusion_gate(torch.cat([item_embs, txt_embs], dim=-1))  # (U, I, C)
-
-        # Compute logits by dot product of fused embeddings with user feature
-        # final_feat: (U, C) -> (U, C, 1)
-        logits = torch.bmm(fused_embs, final_feat.unsqueeze(-1)).squeeze(-1)  # (U, I)
-
-        return logits
-
-'''
     def predict(self, user_ids, log_seqs, item_indices): # for inference
         log_feats = self.log2feats(log_seqs) # user_ids hasn't been used yet
 
         final_feat = log_feats[:, -1, :] # only use last QKV classifier, a waste
 
-        item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev)) # (U, I, C)
-        txt_emb = self.text_emb[torch.LongTensor(item_indices).to(self.dev)]
-
-        item_embs = self.fusion_gate(torch.cat([item_embs, txt_emb], dim=-1))
-
+        item_embs_id = self.item_emb(torch.LongTensor(item_indices).to(self.dev))                 # [I, H]
+        item_embs_feat = self.item_embedding_layer(torch.LongTensor(item_indices).to(self.dev))   # [I, 384]
+        item_embs_cat = torch.cat([item_embs_id, item_embs_feat], dim=-1)                         # [I, H+384]
+        item_embs = self.fusion_gate(item_embs_cat)     
 
         logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
 
         # preds = self.pos_sigmoid(logits) # rank same item list for different users
 
         return logits # preds # (U, I)
-'''
+
+
 
     
