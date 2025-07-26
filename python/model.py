@@ -241,7 +241,36 @@ class SASRecRX(torch.nn.Module):
         # neg_pred = self.neg_sigmoid(neg_logits)
 
         return pos_logits, neg_logits # pos_pred, neg_pred
+    
 
+    def predict(self, user_ids, log_seqs, item_indices):  # for inference
+        log_feats = self.log2feats(log_seqs)  # (U, T, C)
+        final_feat = log_feats[:, -1, :]      # (U, C) -- last time step feature
+
+        # Convert item_indices to tensor on the correct device
+        item_indices_tensor = torch.LongTensor(item_indices).to(self.dev)
+
+        # Get item embedding vectors (I, C)
+        item_embs = self.item_emb(item_indices_tensor)
+
+        # Get text embedding vectors (I, text_dim), e.g., 384
+        txt_embs = self.text_emb[item_indices_tensor]
+
+        # Add batch dim to embeddings if item_indices is 1D, assuming batch size = 1
+        if len(item_embs.shape) == 2:
+            item_embs = item_embs.unsqueeze(0)  # (1, I, C)
+            txt_embs = txt_embs.unsqueeze(0)    # (1, I, text_dim)
+
+        # Fuse item and text embeddings via fusion gate
+        fused_embs = self.fusion_gate(torch.cat([item_embs, txt_embs], dim=-1))  # (U, I, C)
+
+        # Compute logits by dot product of fused embeddings with user feature
+        # final_feat: (U, C) -> (U, C, 1)
+        logits = torch.bmm(fused_embs, final_feat.unsqueeze(-1)).squeeze(-1)  # (U, I)
+
+        return logits
+
+'''
     def predict(self, user_ids, log_seqs, item_indices): # for inference
         log_feats = self.log2feats(log_seqs) # user_ids hasn't been used yet
 
@@ -258,3 +287,6 @@ class SASRecRX(torch.nn.Module):
         # preds = self.pos_sigmoid(logits) # rank same item list for different users
 
         return logits # preds # (U, I)
+'''
+
+    
