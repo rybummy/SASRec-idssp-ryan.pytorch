@@ -175,7 +175,7 @@ class SASRecRX(torch.nn.Module):
 
     def log2feats(self, log_seqs): # TODO: fp64 and int64 as default in python, trim?
         seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
-        txts = self.text_emb[log_seqs]  # Assuming log_seqs contains item indices
+        txts = self.text_emb[torch.LongTensor(log_seqs).to(self.dev)]  # Assuming log_seqs contains item indices
         seqs = torch.cat((seqs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
         seqs = self.fusion_gate(seqs)  # Apply gating mechanism
         #from log_seqs, map product id to learned embedding
@@ -220,7 +220,7 @@ class SASRecRX(torch.nn.Module):
 
         #pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
         pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
-        txts = self.text_emb[pos_seqs]  # Assuming log_seqs contains item indices
+        txts = self.text_emb[torch.LongTensor(log_seqs).to(self.dev)]  # Assuming log_seqs contains item indices
         pos_embs = torch.cat((pos_embs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
         pos_embs = self.fusion_gate(pos_embs)  # Apply gating mechanism
 
@@ -228,7 +228,7 @@ class SASRecRX(torch.nn.Module):
         
         #neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
         neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
-        txts = self.text_emb[neg_seqs]  # Assuming log_seqs contains item indices
+        txts = self.text_emb[torch.LongTensor(log_seqs).to(self.dev)]  # Assuming log_seqs contains item indices
         neg_embs = torch.cat((neg_embs, txts), dim=-1)  # Concatenate item embeddings with text embeddings
         neg_embs = self.fusion_gate(neg_embs)  # Apply gating mechanism
 
@@ -248,7 +248,7 @@ class SASRecRX(torch.nn.Module):
         final_feat = log_feats[:, -1, :] # only use last QKV classifier, a waste
 
         item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev)) # (U, I, C)
-        txt_emb = self.text_emb[item_indices]
+        txt_emb = self.text_emb[torch.LongTensor(log_seqs).to(self.dev)]
 
         item_embs = self.fusion_gate(torch.cat([item_embs, txt_emb], dim=-1))
 
