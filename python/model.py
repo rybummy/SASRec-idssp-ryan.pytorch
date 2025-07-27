@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 
 class PointWiseFeedForward(torch.nn.Module):
@@ -146,7 +147,7 @@ class SASRecRX(torch.nn.Module):
 
         self.text_emb = torch.nn.Embedding(len(args.pretrained_text_embs), 384, padding_idx=None)
         self.text_emb.weight.data.copy_(torch.tensor(args.pretrained_text_embs))
-        self.text_emb.weight.requires_grad = True  # if you want it frozen
+        self.text_emb.weight.requires_grad = False  #false if you want it frozen
 
         self.pos_emb = torch.nn.Embedding(args.maxlen+1, args.hidden_units, padding_idx=0)
         self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
