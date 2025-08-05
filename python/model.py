@@ -146,6 +146,10 @@ class SASRecRX(torch.nn.Module):
         self.item_emb = torch.nn.Embedding(self.item_num + 1, args.hidden_units, padding_idx=0)
 
         self.text_emb = torch.nn.Embedding(len(args.pretrained_text_embs), 384, padding_idx=None)
+
+        #random_text_emb = np.random.rand(*args.pretrained_text_embs.shape)
+        
+        #self.text_emb.weight.data.copy_(torch.tensor(random_text_emb))
         self.text_emb.weight.data.copy_(torch.tensor(args.pretrained_text_embs))
         self.text_emb.weight.requires_grad = False  #false if you want it frozen
 
